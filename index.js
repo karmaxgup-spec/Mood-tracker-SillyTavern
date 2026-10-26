@@ -17,7 +17,7 @@ const PROMPT_KEY = 'st_mood_tracker';
 
 /**
  * Settings defaults. Edit these values here to change behavior, since there is no settings panel.
- * injectIntoPrompt: when true, adds one short mood line to the prompt for the model.
+ * injectIntoPrompt: when true, sends one short mood line to the model on every turn.
  * Default is true, since there is no settings panel to turn it on.
  */
 const DEFAULTS = Object.freeze({
@@ -49,8 +49,10 @@ const INJECT_LINES = Object.freeze({
   anger: '[User seems upset. Stay calm and listen.]'
 });
 
+/** Line sent when the mood is neutral or no reading exists yet. */
+const NEUTRAL_INJECT_LINE = '[User seems calm. Respond naturally.]';
+
 const MANUAL_CHOICES = ['happy', 'love', 'sad', 'jealous', 'anger', 'neutral'];
-const INJECT_MIN_CONFIDENCE = 0.3;
 const phraseMap = buildPhraseMap(LEXICON);
 
 const warned = new Set();
@@ -213,11 +215,12 @@ async function getPromptApi(c) {
 async function syncInjection(c) {
   const s = getSettings(c);
   const st = getState(c);
-  const last = st.history[st.history.length - 1];
-  let text = '';
-  if (s.enabled && s.injectIntoPrompt && st.dominant !== 'neutral' && last && last.confidence >= INJECT_MIN_CONFIDENCE) {
-    text = INJECT_LINES[st.dominant] ?? '';
+  if (!(s.enabled && s.injectIntoPrompt)) {
+    const off = await getPromptApi(c);
+    off?.set(PROMPT_KEY, '', off.position, s.injectDepth);
+    return;
   }
+  const text = INJECT_LINES[st.dominant] ?? NEUTRAL_INJECT_LINE;
   const api = await getPromptApi(c);
   if (!api) return;
   try {
