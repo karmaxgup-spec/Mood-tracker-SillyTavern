@@ -18,13 +18,14 @@ const PROMPT_KEY = 'st_mood_tracker';
 /**
  * Settings defaults. Edit these values here to change behavior, since there is no settings panel.
  * injectIntoPrompt: when true, adds one short mood line to the prompt for the model.
+ * Default is true, since there is no settings panel to turn it on.
  */
 const DEFAULTS = Object.freeze({
   enabled: true,
   alpha: 0.4,
   halfLifeHours: 6,
   minConfidence: 0.15,
-  injectIntoPrompt: false,
+  injectIntoPrompt: true,
   injectDepth: 2,
   sarcasmDetection: true
 });
@@ -53,6 +54,7 @@ const INJECT_MIN_CONFIDENCE = 0.3;
 const phraseMap = buildPhraseMap(LEXICON);
 
 const warned = new Set();
+let promptApi = null;
 
 /**
  * Log a warning once per key.
@@ -175,15 +177,40 @@ function handleDeleted(c, messageId) {
  * @param {object} c
  */
 function refresh(c) {
-  guard('inject', () => syncInjection(c));
+  syncInjection(c).catch((err) => warnOnce('inject', 'Prompt injection update failed.', err));
+}
+
+/**
+ * Find SillyTavern's setExtensionPrompt. Uses getContext() if it exposes it, otherwise
+ * imports it from ST core (script.js, four folders up from this extension).
+ * Inputs: ctx. Output: {set, position} or null. Side effects: may log a warning.
+ * @param {object} c
+ */
+async function getPromptApi(c) {
+  if (promptApi) return promptApi;
+  if (typeof c.setExtensionPrompt === 'function') {
+    promptApi = { set: c.setExtensionPrompt, position: c.extension_prompt_types?.IN_CHAT ?? 1 };
+    return promptApi;
+  }
+  try {
+    const core = await import('../../../../script.js');
+    if (typeof core.setExtensionPrompt === 'function') {
+      promptApi = { set: core.setExtensionPrompt, position: core.extension_prompt_types?.IN_CHAT ?? 1 };
+      return promptApi;
+    }
+    warnOnce('promptApi', 'setExtensionPrompt not exported by script.js; prompt injection disabled.');
+  } catch (err) {
+    warnOnce('promptApi', 'Could not import setExtensionPrompt; prompt injection disabled.', err);
+  }
+  return null;
 }
 
 /**
  * Set or clear the prompt injection line based on current state and settings.
- * Inputs: ctx. Output: none. Side effects: calls setExtensionPrompt.
+ * Inputs: ctx. Output: Promise<void>. Side effects: calls setExtensionPrompt.
  * @param {object} c
  */
-function syncInjection(c) {
+async function syncInjection(c) {
   const s = getSettings(c);
   const st = getState(c);
   const last = st.history[st.history.length - 1];
@@ -191,11 +218,12 @@ function syncInjection(c) {
   if (s.enabled && s.injectIntoPrompt && st.dominant !== 'neutral' && last && last.confidence >= INJECT_MIN_CONFIDENCE) {
     text = INJECT_LINES[st.dominant] ?? '';
   }
-  const position = c.extension_prompt_types?.IN_CHAT ?? 1;
+  const api = await getPromptApi(c);
+  if (!api) return;
   try {
-    c.setExtensionPrompt(PROMPT_KEY, text, position, s.injectDepth);
+    api.set(PROMPT_KEY, text, api.position, s.injectDepth);
   } catch (err) {
-    warnOnce('setExtensionPrompt', 'setExtensionPrompt unavailable; prompt injection disabled.', err);
+    warnOnce('setExtensionPrompt', 'setExtensionPrompt call failed; prompt injection disabled.', err);
   }
 }
 
