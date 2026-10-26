@@ -1,7 +1,8 @@
 /**
  * Mood Tracker: SillyTavern integration.
  * All analysis lives in lib/ (pure functions). This file wires events, per-chat storage,
- * optional prompt injection, and the /mood slash command. It draws nothing on screen
+ * optional prompt injection, and the /mood slash command. It tracks the CHARACTER's emotion
+ * from the AI's replies, never the user's messages. It draws nothing on screen
  * and makes no network requests.
  *
  * Every SillyTavern API call is wrapped so a missing or renamed API disables only
@@ -17,7 +18,7 @@ const PROMPT_KEY = 'st_mood_tracker';
 
 /**
  * Settings defaults. Edit these values here to change behavior, since there is no settings panel.
- * injectIntoPrompt: when true, sends one short mood line to the model on every turn.
+ * injectIntoPrompt: when true, sends one short line describing the character's mood on every turn.
  * Default is true, since there is no settings panel to turn it on.
  */
 const DEFAULTS = Object.freeze({
@@ -40,17 +41,17 @@ const MOOD_LABELS = Object.freeze({
   neutral: 'Neutral'
 });
 
-/** One short line per emotion, injected into the prompt when enabled. */
+/** One short line per character emotion, injected into the prompt when enabled. */
 const INJECT_LINES = Object.freeze({
-  happy: '[User seems happy. Share the warmth.]',
-  love: '[User seems affectionate. Return the affection warmly.]',
-  sad: '[User seems sad. Be gentle and reassuring.]',
-  jealous: "[User seems jealous. Reassure them you're only theirs.]",
-  anger: '[User seems upset. Stay calm and listen.]'
+  happy: 'You are happy.',
+  love: 'You are affectionate.',
+  sad: 'You are sad.',
+  jealous: 'You are jealous.',
+  anger: 'You are angry.'
 });
 
 /** Line sent when the mood is neutral or no reading exists yet. */
-const NEUTRAL_INJECT_LINE = '[User seems calm. Respond naturally.]';
+const NEUTRAL_INJECT_LINE = 'You are calm.';
 
 const MANUAL_CHOICES = ['happy', 'love', 'sad', 'jealous', 'anger', 'neutral'];
 const phraseMap = buildPhraseMap(LEXICON);
@@ -130,16 +131,17 @@ function setState(c, state) {
 }
 
 /**
- * Analyze a user message and store its reading. Replaces any earlier entry for the same message.
- * Inputs: ctx, messageId (number). Output: none. Side effects: updates chat state and prompt.
+ * Analyze a CHARACTER (AI) reply and store its reading. Replaces any earlier entry for the same message.
+ * User messages are ignored. Inputs: ctx, messageId (number). Output: none.
+ * Side effects: updates chat state and prompt.
  * @param {object} c
  * @param {number} messageId
  */
-function trackUserMessage(c, messageId) {
+function trackCharacterMessage(c, messageId) {
   const s = getSettings(c);
   if (!s.enabled) return;
   const msg = c.chat?.[messageId];
-  if (!msg || !msg.is_user) return;
+  if (!msg || msg.is_user) return;
 
   let state = getState(c);
   if (state.history.some((x) => x.id === messageId)) {
@@ -292,17 +294,17 @@ function init() {
     guard(`on-${name}`, () => es.on(et[name], fn));
   };
 
-  // Messages are read at the moment they are sent, not when generation starts.
-  on('MESSAGE_SENT', (arg) => {
+  // The character's reply is read once it has been received.
+  on('MESSAGE_RECEIVED', (arg) => {
     const c2 = getCtx();
     if (!c2) return;
     const id = typeof arg === 'number' ? arg : c2.chat.length - 1;
-    guard('trackUserMessage', () => trackUserMessage(c2, id));
+    guard('trackCharacterMessage', () => trackCharacterMessage(c2, id));
   });
   on('MESSAGE_EDITED', (arg) => {
     const c2 = getCtx();
     if (!c2 || typeof arg !== 'number') return;
-    guard('trackEdited', () => trackUserMessage(c2, arg));
+    guard('trackEdited', () => trackCharacterMessage(c2, arg));
   });
   on('MESSAGE_DELETED', (arg) => {
     const c2 = getCtx();
