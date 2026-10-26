@@ -1,0 +1,10 @@
+{
+  "name": "st-mood-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SillyTavern mood tracker. Local analysis only.",
+  "scripts": {
+    "test": "node --test tests/analyzer.test.mjs"
+  }
+}
