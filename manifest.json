@@ -5,6 +5,5 @@
   "js": "index.js",
   "author": "YOUR NAME",
   "homepage": "https://github.com/YOUR_USER/st-mood-tracker",
-  "minimum_client_version": "1.12.0",
   "description": "Detects the user's mood from their messages using local keyword rules. No network requests, no LLM calls."
 }
